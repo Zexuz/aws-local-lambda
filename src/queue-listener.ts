@@ -21,8 +21,10 @@ export class QueueListener {
         this.sqsClient = new SQSClient({region: region});
     }
 
-    async listen(queueUrl: string, callback: MessageReceivedCallback, errorCallback: ErrorCallback) {
+    async listen(queueUrl: string, callback: MessageReceivedCallback, errorCallback: ErrorCallback): Promise<void> {
+        console.info(`Listening to queue ${queueUrl}`);
         while (this.isActive) {
+            console.info(`Pulling messages from queue ${queueUrl}`);
             try {
                 const pollingCommand = QueueListener.GetReceiveMessageCommand(queueUrl);
                 const result = await this.sqsClient.send(pollingCommand);
@@ -30,27 +32,30 @@ export class QueueListener {
                 if (!result.Messages) {
                     continue;
                 }
+
                 try {
                     callback(result.Messages);
-                    for (const message of result.Messages) {
-                        if (!message.ReceiptHandle) {
-                            errorCallback(new Error("ReceiptHandle is missing"));
-                            return
-                        }
-                        try {
-                            const deleteCommandInput = QueueListener.getDeleteCommand(queueUrl, message.ReceiptHandle);
-                            await this.sqsClient.send(deleteCommandInput);
-                        } catch (error) {
-                            console.error(`Error deleting message `, error);
-                            errorCallback(error);
-                        }
-                    }
-                } catch (e: any) {
+                } catch (e) {
                     errorCallback(e);
+                    return;
                 }
 
+                for (const message of result.Messages) {
+                    if (!message.ReceiptHandle) {
+                        this.stop();
+                        errorCallback(new Error("ReceiptHandle is missing"));
+                        return
+                    }
+                    try {
+                        const deleteCommandInput = QueueListener.getDeleteCommand(queueUrl, message.ReceiptHandle);
+                        await this.sqsClient.send(deleteCommandInput);
+                    } catch (error) {
+                        this.stop();
+                        errorCallback(error);
+                    }
+                }
             } catch (e) {
-                console.error(`Error receiving message `, e);
+                this.stop();
                 errorCallback(e);
             }
         }

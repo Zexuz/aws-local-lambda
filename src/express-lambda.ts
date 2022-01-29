@@ -1,33 +1,39 @@
-import * as path from "path";
-import lambdaLocal = require("lambda-local");
-
 import {QueueListener} from "./queue-listener";
+import {LocalLambdaProps} from "./local-lambda-props";
+import {SQSEvent} from "aws-lambda";
 
 
-const region = "eu-north-1";
-type MessageReceivedCallback = (message: any) => void;
+type SQSEventReceived = (event: SQSEvent) => void;
+type ErrorCallback = (error: Error) => void;
 
-interface LocalLambdaProps {
-
-}
-
-function localLambda(props?: LocalLambdaProps) {
-    const args = {
+export default function localLambda(props?: LocalLambdaProps) {
+    const args: LocalLambdaProps = {
         //defaults
-        // Todo add default props
+        region: props?.region || process.env.AWS_REGION,
+        accountId: props?.accountId || process.env.AWS_ACCOUNT_ID,
         ...props
     }
     return {
-        sqs: (queueUrl: string, callback: MessageReceivedCallback) => {
-            const queueListener = new QueueListener(region);
-            queueListener.listen(queueUrl, callback, error => {
-                console.error(error);
-            }).then(r => console.log('Stopping listening', r));
+        sqs: (queueUrl: string, callback: SQSEventReceived, errorCallback?: ErrorCallback): void => {
+            errorCallback = errorCallback || ((error) => console.error(error));
+            if (!args.region) {
+                throw new Error("AWS_REGION is not set");
+            }
+
+            if (!(queueUrl.startsWith("https") || queueUrl.startsWith("http://sqs."))) {
+                queueUrl = `https://sqs.${args.region}.amazonaws.com/${args.accountId}/${queueUrl}`;
+            }
+
+            const queueListener = new QueueListener(args.region);
+            queueListener.listen(queueUrl, callback, errorCallback).then(_ => _);
         },
         sns: () => {
 
         },
         dynamoStream: () => {
+
+        },
+        s3: () => {
 
         },
         get: () => {
@@ -50,24 +56,19 @@ function localLambda(props?: LocalLambdaProps) {
 
 const sqsUrl = "https://sqs.eu-north-1.amazonaws.com/792153104280/slackbot-message-queue-dlq.fifo";
 
-const app = localLambda();
-
-app.sqs(sqsUrl, (message) => {
-    console.log('received message', message);
-    lambdaLocal.execute({
-        event: {sqsEvent: message},
-        lambdaPath: path.join(__dirname, `./lambda/lambda.ts`),
-        profilePath: "~/.aws/credentials",
-        profileName: "iot",
-        timeoutMs: 300000
-    }).then(function (done) {
-        console.log("---------Success---------");
-        // @ts-ignore
-        console.log(JSON.stringify(JSON.parse(done.body), null, 2));
-    }).catch(function (err) {
-        console.log(err);
-    })
-});
+/*lambdaLocal.execute({
+    event: {sqsEvent: message},
+    lambdaPath: path.join(__dirname, `./lambda/lambda.ts`),
+    profilePath: "~/.aws/credentials",
+    profileName: "iot",
+    timeoutMs: 300000
+}).then(function (done) {
+    console.log("---------Success---------");
+    // @ts-ignore
+    console.log(JSON.stringify(JSON.parse(done.body), null, 2));
+}).catch(function (err) {
+    console.log(err);
+})*/
 
 function getEvent(body: undefined | string, method: string, pathParams: { [key: string]: string } | undefined) {
     return {

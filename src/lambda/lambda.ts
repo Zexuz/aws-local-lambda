@@ -1,4 +1,4 @@
-import {APIGatewayProxyEvent} from "aws-lambda";
+import {APIGatewayProxyEvent, SQSEvent} from "aws-lambda";
 
 export const handler = async function (event: APIGatewayProxyEvent) {
     console.log("Invoked!", event)
