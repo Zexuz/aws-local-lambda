@@ -1,10 +1,43 @@
 import {QueueListener} from "./queue-listener";
 import {LocalLambdaProps} from "./local-lambda-props";
 import {SQSEvent} from "aws-lambda";
+import {DynamodbStreamListener} from "./dynamodb-stream-listener";
 
 
 type SQSEventReceived = (event: SQSEvent) => void;
 type ErrorCallback = (error: Error) => void;
+
+function sqsHandler(args: LocalLambdaProps) {
+    return (queueUrl: string, callback: SQSEventReceived, errorCallback?: ErrorCallback): void => {
+        errorCallback = errorCallback || ((error) => console.error(error));
+        if (!args.region) {
+            throw new Error("AWS_REGION is not set");
+        }
+
+        if (!(queueUrl.startsWith("https") || queueUrl.startsWith("http://sqs."))) {
+            queueUrl = `https://sqs.${args.region}.amazonaws.com/${args.accountId}/${queueUrl}`;
+        }
+
+        const queueListener = new QueueListener(args.region);
+        queueListener.listen(queueUrl, callback, errorCallback).then(_ => _);
+    };
+}
+
+function dynamoStreamHandler(args: LocalLambdaProps) {
+    return (stream: string): void => {
+        if (!args.region) {
+            throw new Error("AWS_REGION is not set");
+        }
+
+        if (!args.accountId) {
+            throw new Error("AWS_REGION is not set");
+        }
+
+        const streamListener = new DynamodbStreamListener(args.region, args.accountId);
+        streamListener.listen(stream).then(_ => _);
+    }
+
+}
 
 export default function localLambda(props?: LocalLambdaProps) {
     const args: LocalLambdaProps = {
@@ -14,47 +47,16 @@ export default function localLambda(props?: LocalLambdaProps) {
         ...props
     }
     return {
-        sqs: (queueUrl: string, callback: SQSEventReceived, errorCallback?: ErrorCallback): void => {
-            errorCallback = errorCallback || ((error) => console.error(error));
-            if (!args.region) {
-                throw new Error("AWS_REGION is not set");
-            }
-
-            if (!(queueUrl.startsWith("https") || queueUrl.startsWith("http://sqs."))) {
-                queueUrl = `https://sqs.${args.region}.amazonaws.com/${args.accountId}/${queueUrl}`;
-            }
-
-            const queueListener = new QueueListener(args.region);
-            queueListener.listen(queueUrl, callback, errorCallback).then(_ => _);
-        },
+        sqs: sqsHandler(args),
         sns: () => {
-
+            throw new Error("SNS is not yet supported");
         },
-        dynamoStream: () => {
-
-        },
+        dynamoStream: dynamoStreamHandler(args),
         s3: () => {
-
-        },
-        get: () => {
-
-        },
-        put: () => {
-
-        },
-        delete: () => {
-
-        },
-        post: () => {
-
-        },
-        executeInOrder: () => {
 
         },
     }
 }
-
-const sqsUrl = "https://sqs.eu-north-1.amazonaws.com/792153104280/slackbot-message-queue-dlq.fifo";
 
 /*lambdaLocal.execute({
     event: {sqsEvent: message},
